@@ -18,6 +18,7 @@ and index caches, and copies the video:
 
 ```bash
 ./deploy-rickroll.sh            # plug in a brochure, run this, unplug
+./deploy-rickroll.sh my.avi     # or deploy a video you converted yourself
 ```
 
 To convert your own video, see **Required video format** below.
