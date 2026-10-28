@@ -1,0 +1,24 @@
+# Source video (copyrighted — download your own)
+/rickroll-source.mp4
+/factory.avi
+
+# Factory backup (company content — keep out of the repo)
+/backup/
+
+# Pipeline intermediates
+/*.mjpeg
+/*.rgb
+/*.pcm
+/*.png
+
+# Test artifacts
+/photo-tests*/
+/test-*.jpg
+/verify-*.jpg
+/midframe*.png
+/video-player-backup.img
+
+# Root-level AVI outputs — the shipped file lives in device/
+/01*.avi
+
+__pycache__/

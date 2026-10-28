@@ -1,0 +1,185 @@
+# Actions AK1025 Video Transcoder
+
+Transcode arbitrary video into the exact AVI variant accepted by video
+brochure players built on the Actions Semiconductor AK1025 / ATJ-family
+"D-Wave" SoC — the little cardboard video-ad players (LCD + speaker,
+magnetic lid trigger) that expose a ~94MB FAT volume over USB.
+
+The stock content on these devices is a single MJPEG AVI with quirks a plain
+`ffmpeg` encode doesn't reproduce — this repo documents the format and
+provides the tools to generate files that actually play.
+
+## Quickstart
+
+The `device/` directory mirrors the brochure's filesystem — copy its contents
+to the FAT volume root (`device/Video/01.avi` → `Video/01.avi`), or use the
+deploy script which finds the player by its USB identity, wipes the old media
+and index caches, and copies the video:
+
+```bash
+./deploy-rickroll.sh            # plug in a brochure, run this, unplug
+```
+
+To convert your own video, see **Required video format** below.
+
+## Hardware identification
+
+| Property | Value |
+|---|---|
+| USB VID:PID | `10d6:1101` |
+| Chip | Actions Semiconductor — AK1025 / ATJ-family "D-Wave" MP4 player SoC |
+| USB strings | Manufacturer `ACTIONS`, Product `HS USB FlashDisk` |
+| Storage | 94MB FAT16, superfloppy (no partition table), mounts as e.g. `/dev/sda` |
+| Trigger | Hall/magnetic sensor — opening the lid powers on and plays |
+| Display | **320x240**, 4:3, renders 1:1 at native res |
+
+## Confirmed by testing
+
+- Panel is exactly 320x240 (verified two ways: a 10px text label measures 10px
+  on screen; a labeled 60x60px box measures 60x60).
+- Photo decoder: baseline JPEG only; accepted everything tested from 320x240 up
+  to 1600x1200 (decode ceiling not reached, likely ~megapixels).
+- Photo scaler: downscales anything larger; upscales only up to ~1.7x —
+  images under ~192px wide show centered with black bars.
+- The display pipeline always resamples — no 1:1 path for non-native sizes,
+  so fine 1px test patterns blur to gray on anything but exact-res images.
+- Both numeric (`01.jpg`) and arbitrary (`verify.jpg`) filenames play.
+
+## Filesystem layout
+
+```
+/
+├── VIDEO.LIB     384KB proprietary blob (header "VIDEO.L"/"ALLFILE").
+│                 Media index/thumbnail cache — the chip regenerates it.
+│                 Safe to delete (it rebuilds on next scan).
+├── Video/        Numbered .avi files, e.g. 01.avi, 02.avi — play in order
+├── Photo/        JPEG slideshow images
+└── System Volume Information/   Windows junk, ignore
+```
+
+## Required video format
+
+The decoder is picky — normal MP4/H.264 will NOT play, and it also rejects
+many otherwise-valid ffmpeg AVIs with "Format error".
+
+| | |
+|---|---|
+| Container | AVI |
+| Video codec | MJPEG (baseline), yuvj420p |
+| Resolution | 320x240 (native — anything else just gets resampled) |
+| Frame rate | ~14.42 fps (22050/1529 — one audio block per video frame) |
+| Audio codec | IMA ADPCM WAV, 22050 Hz, mono, 768-byte blocks |
+
+### Conversion — the reliable way (Python tools)
+
+The factory AVI has unusual structural quirks: 4-byte-aligned chunks (NOT the
+usual 2-byte RIFF padding), padded sizes recorded in `idx1`, alternating
+`00dc`/`01wb` chunks in lockstep, 768-byte ADPCM blocks, a minimal `hdrl`
+with no JUNK/INFO/vprp chunks, and JPEG frames carrying an `AVI1` APP0 marker
+plus four separate standard Huffman tables. Two scripts replicate all of it:
+
+```bash
+# 1. Extract frames as an MJPEG stream (standard Huffman tables, 14.42fps)
+ffmpeg -i input.mp4 \
+  -vf "scale=320:240:force_original_aspect_ratio=decrease,pad=320:240:(ow-iw)/2:(oh-ih)/2,fps=500000/34671" \
+  -c:v mjpeg -q:v 4 -pix_fmt yuvj420p -huffman default \
+  -f mjpeg frames-std.mjpeg
+
+# 2. Extract audio as raw s16le mono 22050Hz
+ffmpeg -i input.mp4 -ac 1 -ar 22050 -f s16le audio.pcm
+
+# 3. Mux into a factory-layout AVI (normalizes JPEG headers to AVI1 style,
+#    encodes 768-byte IMA-ADPCM blocks, 4-byte chunk alignment, idx1)
+python3 mux_factory_avi.py frames-std.mjpeg audio.pcm 01.avi
+```
+
+Copy `01.avi` to `Video/` on the device. Deleting `VIDEO.LIB` first forces
+the chip to re-index (it regenerates automatically).
+
+**Baked-in pillarbox bars**: some sources letterbox/pillarbox content inside
+the frame (e.g. the rickroll upload is 4:3 video boxed into 854x480). If you
+scale-to-fit that, the bars survive and the video plays inset with black on
+all sides. Crop first — detect the box with
+`ffmpeg -i input.mp4 -vf cropdetect -f null -`, then prepend the crop:
+
+```bash
+-vf "crop=640:480,scale=320:240,fps=500000/34671"
+```
+
+Verify the result fills the frame before deploying (content should span
+x=0..319, y=0..239).
+
+`mux_factory_avi.py` was verified by remuxing the factory AVI's own payloads:
+the result is byte-identical to the original except 5 garbage bytes in the
+`avih` reserved fields.
+
+### Optional: factory-exact JPEG encoding
+
+`reencode_frames.py` re-encodes frames with the factory's exact quantization
+tables (ffmpeg `-q:v` never emits them). Produces larger files — at rickroll
+content/complexity it overflowed the 94MB disk, so it's only practical for
+shorter clips:
+
+```bash
+ffmpeg -i input.mp4 \
+  -vf "scale=320:240,fps=500000/34671" \
+  -f rawvideo -pix_fmt rgb24 frames.rgb
+
+# 3rd arg = a factory AVI to lift quant tables from
+python3 reencode_frames.py frames.rgb frames-factory.mjpeg factory.avi
+python3 mux_factory_avi.py frames-factory.mjpeg audio.pcm 01.avi
+```
+
+### Simple one-liner (sometimes rejected)
+
+The plain ffmpeg encode plays on some firmware but can hit "Format error":
+
+```bash
+ffmpeg -i input.mp4 \
+  -vf "scale=320:240:force_original_aspect_ratio=decrease,pad=320:240:(ow-iw)/2:(oh-ih)/2,fps=15" \
+  -c:v mjpeg -q:v 4 -pix_fmt yuvj420p \
+  -c:a adpcm_ima_wav -ar 22050 -ac 1 \
+  01.avi
+```
+
+Copy to `Video/01.avi` on the device. Use `02.avi`, `03.avi`, … for sequences.
+
+### Photo conversion
+
+```bash
+ffmpeg -i input.jpg \
+  -vf "scale=320:240:force_original_aspect_ratio=decrease,pad=320:240:(ow-iw)/2:(oh-ih)/2" \
+  -q:v 3 out.jpg
+```
+
+## Capacity
+
+~93MB free → roughly:
+
+| `-q:v` | Bitrate | Max length |
+|---|---|---|
+| 4 (clean) | ~1400 kb/s | ~9 min |
+| ~7 (matches original ad) | ~1000 kb/s | ~13 min |
+| 10 (blocky) | ~600 kb/s | ~22 min |
+| 15 (ugly) | ~400 kb/s | ~33 min |
+
+## Working with the device
+
+```bash
+udisksctl mount -b /dev/sda        # mounts at /run/media/$USER/0000-006F
+# copy files, then:
+sync && udisksctl unmount -b /dev/sda
+```
+
+Always `sync` before unplugging. The device is a superfloppy — the FAT fs is
+directly on `/dev/sda`, not a partition.
+
+## Unexplored / further work
+
+- **ADFU mode**: Actions chips have a Device Firmware Update mode, often
+  exposed as a second USB personality when a button is held during plug-in.
+  Open-source flashing tools exist for the ATJ/AK family. Bricking risk —
+  not needed for content changes.
+- **VIDEO.LIB**: packed/encrypted resource blob, format not reverse-engineered.
+- Play order with multiple `Video/*.avi` files and the photo slideshow
+  interval were not characterized.
