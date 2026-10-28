@@ -18,10 +18,16 @@ and index caches, and copies the video:
 
 ```bash
 ./deploy-rickroll.sh            # plug in a brochure, run this, unplug
-./deploy-rickroll.sh my.avi     # or deploy a video you converted yourself
+./deploy-rickroll.sh my.mp4     # any video file works — if it isn't already
+                                # in the brochure's format it is transcoded
+                                # automatically before copying
 ```
 
-To convert your own video, see **Required video format** below.
+The script checks the file itself (codec, resolution, audio format, and the
+factory chunk layout); a conforming AVI is copied straight over, anything else
+goes through the full transcode pipeline first — including auto-cropping
+baked-in letterbox/pillarbox bars. To control the conversion by hand, see
+**Required video format** below.
 
 ## Hardware identification
 
