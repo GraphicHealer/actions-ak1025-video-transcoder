@@ -72,34 +72,43 @@ many otherwise-valid ffmpeg AVIs with "Format error".
 | | |
 |---|---|
 | Container | AVI |
-| Video codec | MJPEG (baseline), yuvj420p |
+| Video codec | MJPEG (baseline), yuvj420p — **4:2:0 only** (4:2:2/4:4:4 rejected) |
 | Resolution | 320x240 (native — anything else just gets resampled) |
 | Frame rate | ~14.42 fps (22050/1529 — one audio block per video frame) |
 | Audio codec | IMA ADPCM WAV, 22050 Hz, mono, 768-byte blocks |
 
+### Decoder limits discovered by experiment
+
+- **~16KB per video frame** — JPEG frames larger than ~16384 bytes are
+  truncated/corrupt: shows as block-boundary garbage ("grid" of color
+  transitions). Keep every frame under ~15KB.
+- **Constant quant tables** — the decoder doesn't handle per-frame varying
+  DQTs; frames decode with mismatched tables (flickering wrong colors).
+- **Factory quant tables look best** — the stock tables (embedded in
+  `reencode_frames.py`) are tuned so the hardest frames just fit the buffer.
+  Finer tables only help if frames still fit the cap.
+- **JPEG header layout matters** — `AVI1` APP0 marker, two DQTs, four
+  standard Huffman tables (not optimized).
+
 ### Conversion — the reliable way (Python tools)
 
-The factory AVI has unusual structural quirks: 4-byte-aligned chunks (NOT the
-usual 2-byte RIFF padding), padded sizes recorded in `idx1`, alternating
-`00dc`/`01wb` chunks in lockstep, 768-byte ADPCM blocks, a minimal `hdrl`
-with no JUNK/INFO/vprp chunks, and JPEG frames carrying an `AVI1` APP0 marker
-plus four separate standard Huffman tables. Two scripts replicate all of it:
-
 ```bash
-# 1. Extract frames as an MJPEG stream (standard Huffman tables, 14.42fps)
-#    (-q:v 2 is the encoder's ceiling here — -q:v 1 is byte-identical;
-#     drop to -q:v 4 or higher for videos that won't fit in 94MB)
+# 1. Extract frames as raw RGB (crop first if the source has baked-in bars)
 ffmpeg -i input.mp4 \
   -vf "scale=320:240:force_original_aspect_ratio=decrease,pad=320:240:(ow-iw)/2:(oh-ih)/2,fps=500000/34671" \
-  -c:v mjpeg -q:v 2 -pix_fmt yuvj420p -huffman default \
-  -f mjpeg frames-std.mjpeg
+  -f rawvideo -pix_fmt rgb24 frames.rgb
 
 # 2. Extract audio as raw s16le mono 22050Hz
 ffmpeg -i input.mp4 -ac 1 -ar 22050 -f s16le audio.pcm
 
-# 3. Mux into a factory-layout AVI (normalizes JPEG headers to AVI1 style,
-#    encodes 768-byte IMA-ADPCM blocks, 4-byte chunk alignment, idx1)
-python3 mux_factory_avi.py frames-std.mjpeg audio.pcm 01.avi
+# 3. Re-encode frames with the factory quant tables
+#    (args: in.rgb out.mjpeg [factory.avi] [scale] [cap-bytes])
+#    cap adds mild blur-rate-control for frames that would exceed it
+python3 reencode_frames.py frames.rgb frames.mjpeg "" 1.0 16000
+
+# 4. Mux into a factory-layout AVI (AVI1 JPEG headers, 768-byte IMA-ADPCM
+#    blocks, 4-byte chunk alignment, idx1)
+python3 mux_factory_avi.py frames.mjpeg audio.pcm 01.avi
 ```
 
 Copy `01.avi` to `Video/` on the device. Deleting `VIDEO.LIB` first forces
@@ -122,22 +131,14 @@ x=0..319, y=0..239).
 the result is byte-identical to the original except 5 garbage bytes in the
 `avih` reserved fields.
 
-### Optional: factory-exact JPEG encoding
+### Quality tuning
 
-`reencode_frames.py` re-encodes frames with the factory's exact quantization
-tables (ffmpeg `-q:v` never emits them). Produces larger files — at rickroll
-content/complexity it overflowed the 94MB disk, so it's only practical for
-shorter clips:
-
-```bash
-ffmpeg -i input.mp4 \
-  -vf "scale=320:240,fps=500000/34671" \
-  -f rawvideo -pix_fmt rgb24 frames.rgb
-
-# 3rd arg = a factory AVI to lift quant tables from
-python3 reencode_frames.py frames.rgb frames-factory.mjpeg factory.avi
-python3 mux_factory_avi.py frames-factory.mjpeg audio.pcm 01.avi
-```
+`reencode_frames.py`'s `scale` argument multiplies the factory tables:
+`1.0` = factory quality (recommended). Smaller values quantize finer but
+frames grow — combined with the `cap` argument, oversized frames get mild
+progressive blur instead of coarser tables (constant DQTs are required).
+`0.5` with cap 15000 fills ~42MB but visibly softens busy scenes; `1.0`
+is the sweet spot. Without cap, oversize frames will corrupt on-device.
 
 ### Simple one-liner (sometimes rejected)
 

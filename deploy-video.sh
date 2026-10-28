@@ -61,9 +61,21 @@ transcode() {
     vf="scale=320:240:force_original_aspect_ratio=decrease,pad=320:240:(ow-iw)/2:(oh-ih)/2,fps=500000/34671"
     [[ -n $crop ]] && vf="crop=$crop,$vf"
     [[ -n $crop ]] && echo "  cropping baked-in bars: $crop"
-    ffmpeg -v error -i "$src" -vf "$vf" \
-        -c:v mjpeg -q:v 2 -pix_fmt yuvj420p -huffman default \
-        -f mjpeg "$tmp/frames.mjpeg"
+    if python3 -c 'import PIL' 2>/dev/null; then
+        # preferred: re-encode frames with the factory quant tables
+        # (decoder renders these cleanly; ~16KB/frame cap enforced by
+        #  mild blur on the rare oversized frame)
+        ffmpeg -v error -i "$src" -vf "$vf" \
+            -f rawvideo -pix_fmt rgb24 "$tmp/frames.rgb"
+        python3 "$DIR/reencode_frames.py" "$tmp/frames.rgb" \
+            "$tmp/frames.mjpeg" "" 1.0 16000
+    else
+        echo "  (Pillow not installed — using ffmpeg MJPEG path; install"
+        echo "   python3-pillow for the factory-table encoder)"
+        ffmpeg -v error -i "$src" -vf "$vf" \
+            -c:v mjpeg -q:v 2 -pix_fmt yuvj420p -huffman default \
+            -f mjpeg "$tmp/frames.mjpeg"
+    fi
     has_audio=$(ffprobe -v error -select_streams a:0 \
                 -show_entries stream=index -of csv=p=0 "$src" 2>/dev/null || true)
     if [[ -n $has_audio ]]; then
