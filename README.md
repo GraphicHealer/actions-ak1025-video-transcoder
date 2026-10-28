@@ -87,9 +87,11 @@ plus four separate standard Huffman tables. Two scripts replicate all of it:
 
 ```bash
 # 1. Extract frames as an MJPEG stream (standard Huffman tables, 14.42fps)
+#    (-q:v 2 is the encoder's ceiling here — -q:v 1 is byte-identical;
+#     drop to -q:v 4 or higher for videos that won't fit in 94MB)
 ffmpeg -i input.mp4 \
   -vf "scale=320:240:force_original_aspect_ratio=decrease,pad=320:240:(ow-iw)/2:(oh-ih)/2,fps=500000/34671" \
-  -c:v mjpeg -q:v 4 -pix_fmt yuvj420p -huffman default \
+  -c:v mjpeg -q:v 2 -pix_fmt yuvj420p -huffman default \
   -f mjpeg frames-std.mjpeg
 
 # 2. Extract audio as raw s16le mono 22050Hz
@@ -165,6 +167,7 @@ ffmpeg -i input.jpg \
 
 | `-q:v` | Bitrate | Max length |
 |---|---|---|
+| 2 (best — encoder ceiling) | ~1700 kb/s | ~7 min |
 | 4 (clean) | ~1400 kb/s | ~9 min |
 | ~7 (matches original ad) | ~1000 kb/s | ~13 min |
 | 10 (blocky) | ~600 kb/s | ~22 min |

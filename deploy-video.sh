@@ -62,7 +62,7 @@ transcode() {
     [[ -n $crop ]] && vf="crop=$crop,$vf"
     [[ -n $crop ]] && echo "  cropping baked-in bars: $crop"
     ffmpeg -v error -i "$src" -vf "$vf" \
-        -c:v mjpeg -q:v 4 -pix_fmt yuvj420p -huffman default \
+        -c:v mjpeg -q:v 2 -pix_fmt yuvj420p -huffman default \
         -f mjpeg "$tmp/frames.mjpeg"
     has_audio=$(ffprobe -v error -select_streams a:0 \
                 -show_entries stream=index -of csv=p=0 "$src" 2>/dev/null || true)
