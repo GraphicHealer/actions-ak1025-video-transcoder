@@ -17,8 +17,8 @@ deploy script which finds the player by its USB identity, wipes the old media
 and index caches, and copies the video:
 
 ```bash
-./deploy-rickroll.sh            # plug in a brochure, run this, unplug
-./deploy-rickroll.sh my.mp4     # any video file works — if it isn't already
+./deploy-video.sh            # plug in a brochure, run this, unplug
+./deploy-video.sh my.mp4     # any video file works — if it isn't already
                                 # in the brochure's format it is transcoded
                                 # automatically before copying
 ```

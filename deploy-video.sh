@@ -8,8 +8,8 @@
 # transcoded automatically (ffmpeg + mux_factory_avi.py).
 #
 # Usage:
-#   ./deploy-rickroll.sh                # deploys device/Video/01.avi
-#   ./deploy-rickroll.sh some.mp4|avi   # transcodes if needed, then deploys
+#   ./deploy-video.sh                # deploys device/Video/01.avi
+#   ./deploy-video.sh some.mp4|avi   # transcodes if needed, then deploys
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
