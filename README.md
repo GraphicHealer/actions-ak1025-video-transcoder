@@ -9,6 +9,14 @@ The stock content on these devices is a single MJPEG AVI with quirks a plain
 `ffmpeg` encode doesn't reproduce — this repo documents the format and
 provides the tools to generate files that actually play.
 
+## Requirements
+
+- **Deploying the included video**: nothing — copy `device/` contents, or run
+  `deploy-video.py` (Python 3 only, no deps) / `deploy-video.sh` (Linux bash).
+- **Transcoding your own video**: `ffmpeg` + `ffprobe`, Python 3, and Pillow
+  (`pip install pillow` — enables the factory-table encoder; the ffmpeg-MJPEG
+  path works without it).
+
 ## Quickstart
 
 The `device/` directory mirrors the brochure's filesystem — copy its contents
@@ -174,15 +182,19 @@ ffmpeg -i input.jpg \
 
 ## Capacity
 
-~93MB free → roughly:
+~93MB free → roughly, at 14.42fps + ADPCM audio (~120 kb/s):
 
-| `-q:v` | Bitrate | Max length |
+| Encoder | Bitrate | Max length |
 |---|---|---|
-| 2 (best — encoder ceiling) | ~1700 kb/s | ~7 min |
-| 4 (clean) | ~1400 kb/s | ~9 min |
-| ~7 (matches original ad) | ~1000 kb/s | ~13 min |
-| 10 (blocky) | ~600 kb/s | ~22 min |
-| 15 (ugly) | ~400 kb/s | ~33 min |
+| **Factory tables (recommended)** | ~1300 kb/s | ~10 min |
+| ffmpeg `-q:v 2` (ceiling) | ~1700 kb/s | ~7 min |
+| ffmpeg `-q:v 4` (clean) | ~1400 kb/s | ~9 min |
+| ffmpeg `-q:v 10` (blocky) | ~600 kb/s | ~22 min |
+| ffmpeg `-q:v 15` (ugly) | ~400 kb/s | ~33 min |
+
+Note: ffmpeg-path bitrates are approximate and frame sizes can exceed the
+~16KB decoder cap on complex content — the factory-table encoder with a cap
+is the safe route.
 
 ## Working with the device
 
@@ -194,6 +206,17 @@ sync && udisksctl unmount -b /dev/sda
 
 Always `sync` before unplugging. The device is a superfloppy — the FAT fs is
 directly on `/dev/sda`, not a partition.
+
+## Repository contents
+
+```
+device/             Drop-in brochure filesystem — copy contents to the volume root
+deploy-video.sh     Linux deployer (udev detection, auto-mount, auto-transcode)
+deploy-video.py     Cross-platform deployer (Windows / Linux / macOS)
+mux_factory_avi.py  Factory-layout AVI muxer — verified byte-identical
+                    remux of the stock file except 5 garbage header bytes
+reencode_frames.py  Factory-quant-table JPEG encoder (scale / cap / blur modes)
+```
 
 ## Unexplored / further work
 
