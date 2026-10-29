@@ -17,10 +17,20 @@ deploy script which finds the player by its USB identity, wipes the old media
 and index caches, and copies the video:
 
 ```bash
-./deploy-video.sh            # plug in a brochure, run this, unplug
+./deploy-video.sh            # Linux: plug in a brochure, run this, unplug
 ./deploy-video.sh my.mp4     # any video file works — if it isn't already
                                 # in the brochure's format it is transcoded
                                 # automatically before copying
+```
+
+On Windows/macOS (or anywhere Python runs), use the Python deployer —
+it scans mounted volumes for the brochure's signature (a ~94MB volume
+with `Video/` or `VIDEO.LIB`), does the format check natively, and
+deploys the same way:
+
+```bash
+python deploy-video.py
+python deploy-video.py my.mp4
 ```
 
 The script checks the file itself (codec, resolution, audio format, and the
